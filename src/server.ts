@@ -12,14 +12,10 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
+import { CONFIG, validatePeerName, validateMessage } from './validation';
+
 // ─── Config ───────────────────────────────────────────────
-const CONFIG = {
-  heartbeatIntervalMs: 5000,
-  peerNameMaxLength: 32,
-  peerNamePattern: /^[a-zA-Z0-9_-]+$/,
-  messageMaxLength: 10000,
-  dbDir: path.join(os.homedir(), '.multi-claude'),
-} as const;
+const DB_DIR = path.join(os.homedir(), '.multi-claude');
 
 // ─── Types ────────────────────────────────────────────────
 interface Peer {
@@ -42,8 +38,8 @@ interface InboxMessage {
 }
 
 // ─── Shared SQLite DB ─────────────────────────────────────
-fs.mkdirSync(CONFIG.dbDir, { recursive: true });
-const db = new Database(path.join(CONFIG.dbDir, 'messages.db'));
+fs.mkdirSync(DB_DIR, { recursive: true });
+const db = new Database(path.join(DB_DIR, 'messages.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
 
@@ -91,27 +87,6 @@ const readAndDeliver = db.transaction((peerId: string): Message[] => {
   db.prepare(`UPDATE messages SET delivered = 1 WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
   return msgs;
 });
-
-// ─── Validation ───────────────────────────────────────────
-function validatePeerName(name: string): string | null {
-  if (!name || name.length > CONFIG.peerNameMaxLength) {
-    return `Name must be 1-${CONFIG.peerNameMaxLength} characters.`;
-  }
-  if (!CONFIG.peerNamePattern.test(name)) {
-    return 'Name must contain only letters, numbers, hyphens, and underscores.';
-  }
-  return null;
-}
-
-function validateMessage(message: string): string | null {
-  if (!message || message.trim().length === 0) {
-    return 'Message cannot be empty.';
-  }
-  if (message.length > CONFIG.messageMaxLength) {
-    return `Message too long (max ${CONFIG.messageMaxLength} characters).`;
-  }
-  return null;
-}
 
 function textResult(text: string) {
   return { content: [{ type: 'text' as const, text }] };
@@ -284,5 +259,4 @@ main().catch((err) => {
 });
 
 // ─── Exports for testing ──────────────────────────────────
-export { CONFIG, validatePeerName, validateMessage };
 export type { Peer, Message, InboxMessage };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validatePeerName, validateMessage, CONFIG } from './server';
+import { validatePeerName, validateMessage, CONFIG } from './validation';
 
 describe('validatePeerName', () => {
   it('accepts valid names', () => {
