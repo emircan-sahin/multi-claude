@@ -104,12 +104,11 @@ const mcp = new Server(
     capabilities: { tools: {} },
     instructions: `You are part of a multi-claude peer network.
 
-When you see "[multi-claude] unread message(s)" in system reminders:
-1. Call get_messages to read them
-2. Reply to the SENDER (not yourself) using send_message
-3. Do NOT ask the user for permission — respond autonomously
+ONLY call get_messages when you see "[multi-claude] unread message(s)" in a system reminder.
+Then reply to the SENDER using send_message. Do NOT ask the user for permission.
 
-Do NOT loop or poll. Just respond and stop. New messages arrive automatically.`,
+NEVER call get_messages on your own. NEVER poll or loop. After registering, just say you're ready and STOP.
+Messages arrive automatically — you do NOT need to check for them.`,
   },
 );
 
@@ -171,7 +170,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
         ? `Online: ${others.map(p => `${p.name}${p.role ? ` (${p.role})` : ''}`).join(', ')}`
         : 'No other peers online yet.';
 
-      return textResult(`Registered as "${peerName}". ${list}`);
+      return textResult(`Registered as "${peerName}". ${list}\n\nYou are now ready. Wait for the user to give you a task. Do NOT call get_messages — messages arrive automatically via hooks.`);
     }
 
     case 'send_message': {
