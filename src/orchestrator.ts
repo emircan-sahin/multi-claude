@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { spawn } from 'child_process';
-import * as readline from 'readline';
 import crypto from 'crypto';
 
 // ─── Colors ──────────────────────────────────────────────
@@ -25,12 +24,6 @@ interface Agent {
 }
 
 // ─── Logging ─────────────────────────────────────────────
-function agentLog(agent: Agent, text: string) {
-  for (const line of text.split('\n')) {
-    console.log(`${agent.color}[${agent.name}]${C.reset} ${line}`);
-  }
-}
-
 function sysLog(msg: string) {
   console.log(`${C.dim}[system]${C.reset} ${msg}`);
 }
@@ -150,6 +143,7 @@ During orchestration:
   /quit                 Stop orchestration
 `);
         process.exit(0);
+        break; // eslint: no-fallthrough
       default:
         if (!argv[i].startsWith('-')) {
           const colonIdx = argv[i].indexOf(':');
@@ -174,34 +168,6 @@ During orchestration:
   return { agents, goal, start, maxTurns, cwd };
 }
 
-// ─── User input handler ──────────────────────────────────
-function createInputHandler(): { getLine: () => Promise<string | null>; close: () => void } {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const pending: Array<(line: string | null) => void> = [];
-  let closed = false;
-
-  rl.on('line', (line) => {
-    if (pending.length > 0) {
-      pending.shift()!(line);
-    }
-  });
-
-  rl.on('close', () => {
-    closed = true;
-    for (const resolve of pending) resolve(null);
-    pending.length = 0;
-  });
-
-  return {
-    getLine: () => {
-      if (closed) return Promise.resolve(null);
-      return new Promise((resolve) => {
-        pending.push(resolve);
-      });
-    },
-    close: () => rl.close(),
-  };
-}
 
 // ─── Main orchestration loop ─────────────────────────────
 async function main() {
@@ -250,8 +216,8 @@ async function main() {
   try {
     const resp = await runAgent(agents[0], initialPrompt, config.cwd);
     responses.set(agents[0].name, resp);
-  } catch (err: any) {
-    console.error(`${C.red}${err.message}${C.reset}`);
+  } catch (err: unknown) {
+    console.error(`${C.red}${err instanceof Error ? err.message : err}${C.reset}`);
     process.exit(1);
   }
 
@@ -265,8 +231,8 @@ async function main() {
     try {
       const resp = await runAgent(agents[i], `${initialPrompt}\n\n${prevMessages}`, config.cwd);
       responses.set(agents[i].name, resp);
-    } catch (err: any) {
-      console.error(`${C.red}${err.message}${C.reset}`);
+    } catch (err: unknown) {
+      console.error(`${C.red}${err instanceof Error ? err.message : err}${C.reset}`);
     }
   }
 
@@ -314,8 +280,8 @@ async function main() {
           goalComplete = true;
           break;
         }
-      } catch (err: any) {
-        sysLog(`${C.red}Error from ${agent.name}: ${err.message}${C.reset}`);
+      } catch (err: unknown) {
+        sysLog(`${C.red}Error from ${agent.name}: ${err instanceof Error ? err.message : err}${C.reset}`);
       }
     }
 

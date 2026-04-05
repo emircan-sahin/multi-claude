@@ -12,10 +12,38 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-// ─── Shared SQLite DB ──────────────────────────────────────
-const DB_DIR = path.join(os.homedir(), '.multi-claude');
-fs.mkdirSync(DB_DIR, { recursive: true });
-const db = new Database(path.join(DB_DIR, 'messages.db'));
+// ─── Config ───────────────────────────────────────────────
+const CONFIG = {
+  heartbeatIntervalMs: 5000,
+  peerNameMaxLength: 32,
+  peerNamePattern: /^[a-zA-Z0-9_-]+$/,
+  messageMaxLength: 10000,
+  dbDir: path.join(os.homedir(), '.multi-claude'),
+} as const;
+
+// ─── Types ────────────────────────────────────────────────
+interface Peer {
+  id: string;
+  name: string;
+  role: string | null;
+  last_seen: string;
+}
+
+interface Message {
+  id: number;
+  content: string;
+  sender: string;
+}
+
+interface InboxMessage {
+  content: string;
+  sender: string;
+  recipient: string;
+}
+
+// ─── Shared SQLite DB ─────────────────────────────────────
+fs.mkdirSync(CONFIG.dbDir, { recursive: true });
+const db = new Database(path.join(CONFIG.dbDir, 'messages.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
 
@@ -37,18 +65,68 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_msg_undelivered ON messages(to_id, delivered);
 `);
 
-// ─── This instance ─────────────────────────────────────────
+// ─── Prepared statements ──────────────────────────────────
+const stmts = {
+  deletePeerByName: db.prepare('DELETE FROM peers WHERE name = ? COLLATE NOCASE'),
+  insertPeer: db.prepare('INSERT INTO peers (id, name, role) VALUES (?, ?, ?)'),
+  selectOtherPeers: db.prepare('SELECT name, role FROM peers WHERE id != ?'),
+  selectPeerByName: db.prepare('SELECT id, name FROM peers WHERE name = ? COLLATE NOCASE'),
+  selectAllPeers: db.prepare('SELECT name, role FROM peers ORDER BY last_seen DESC'),
+  selectPeerNames: db.prepare('SELECT name FROM peers WHERE id != ?'),
+  insertMessage: db.prepare('INSERT INTO messages (from_id, to_id, content) VALUES (?, ?, ?)'),
+  selectUndelivered: db.prepare(`
+    SELECT m.id, m.content, p.name as sender
+    FROM messages m JOIN peers p ON m.from_id = p.id
+    WHERE m.to_id = ? AND m.delivered = 0 ORDER BY m.created_at
+  `),
+  heartbeat: db.prepare("UPDATE peers SET last_seen = datetime('now') WHERE id = ?"),
+  deletePeerById: db.prepare('DELETE FROM peers WHERE id = ?'),
+};
+
+// Atomic read + mark delivered
+const readAndDeliver = db.transaction((peerId: string): Message[] => {
+  const msgs = stmts.selectUndelivered.all(peerId) as Message[];
+  if (msgs.length === 0) return [];
+  const ids = msgs.map(m => m.id);
+  db.prepare(`UPDATE messages SET delivered = 1 WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+  return msgs;
+});
+
+// ─── Validation ───────────────────────────────────────────
+function validatePeerName(name: string): string | null {
+  if (!name || name.length > CONFIG.peerNameMaxLength) {
+    return `Name must be 1-${CONFIG.peerNameMaxLength} characters.`;
+  }
+  if (!CONFIG.peerNamePattern.test(name)) {
+    return 'Name must contain only letters, numbers, hyphens, and underscores.';
+  }
+  return null;
+}
+
+function validateMessage(message: string): string | null {
+  if (!message || message.trim().length === 0) {
+    return 'Message cannot be empty.';
+  }
+  if (message.length > CONFIG.messageMaxLength) {
+    return `Message too long (max ${CONFIG.messageMaxLength} characters).`;
+  }
+  return null;
+}
+
+function textResult(text: string) {
+  return { content: [{ type: 'text' as const, text }] };
+}
+
+// ─── This instance ────────────────────────────────────────
 const myId = crypto.randomUUID();
 let myName = '';
 let dbOpen = true;
 
-// ─── MCP Server (low-level for channel support) ────────────
+// ─── MCP Server ───────────────────────────────────────────
 const mcp = new Server(
   { name: 'multi-claude', version: '2.0.0' },
   {
-    capabilities: {
-      tools: {},
-    },
+    capabilities: { tools: {} },
     instructions: `You are part of a multi-claude peer network.
 
 When you see "[multi-claude] unread message(s)" in system reminders:
@@ -60,7 +138,7 @@ Do NOT loop or poll. Just respond and stop. New messages arrive automatically.`,
   },
 );
 
-// ─── Tools ─────────────────────────────────────────────────
+// ─── Tools ────────────────────────────────────────────────
 const TOOLS = [
   {
     name: 'register',
@@ -68,7 +146,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object' as const,
       properties: {
-        name: { type: 'string' as const, description: 'Display name (e.g. "Ahmet")' },
+        name: { type: 'string' as const, description: 'Display name (e.g. "alice")' },
         role: { type: 'string' as const, description: 'Optional role' },
       },
       required: ['name'],
@@ -76,7 +154,7 @@ const TOOLS = [
   },
   {
     name: 'send_message',
-    description: 'Send a message to another peer by name. Delivered instantly via channel.',
+    description: 'Send a message to another peer by name.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -93,7 +171,7 @@ const TOOLS = [
   },
   {
     name: 'get_messages',
-    description: 'Manually check for new messages.',
+    description: 'Read all pending messages addressed to you.',
     inputSchema: { type: 'object' as const, properties: {} },
   },
 ];
@@ -106,87 +184,93 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   switch (name) {
     case 'register': {
       const { name: peerName, role } = args as { name: string; role?: string };
-      myName = peerName;
-      db.prepare('DELETE FROM peers WHERE name = ? COLLATE NOCASE').run(peerName);
-      db.prepare('INSERT INTO peers (id, name, role) VALUES (?, ?, ?)').run(myId, peerName, role ?? null);
+      const err = validatePeerName(peerName);
+      if (err) return textResult(err);
 
-      const others = db.prepare('SELECT name, role FROM peers WHERE id != ?').all(myId) as any[];
+      myName = peerName;
+      stmts.deletePeerByName.run(peerName);
+      stmts.insertPeer.run(myId, peerName, role ?? null);
+
+      const others = stmts.selectOtherPeers.all(myId) as Peer[];
       const list = others.length
-        ? `Online: ${others.map((p: any) => `${p.name}${p.role ? ` (${p.role})` : ''}`).join(', ')}`
+        ? `Online: ${others.map(p => `${p.name}${p.role ? ` (${p.role})` : ''}`).join(', ')}`
         : 'No other peers online yet.';
 
-      return { content: [{ type: 'text' as const, text: `Registered as "${peerName}". ${list}` }] };
+      return textResult(`Registered as "${peerName}". ${list}`);
     }
 
     case 'send_message': {
       const { to, message } = args as { to: string; message: string };
-      if (!myName) return { content: [{ type: 'text' as const, text: 'Register first with /name.' }] };
+      if (!myName) return textResult('Register first with /name.');
 
-      const target = db.prepare('SELECT id, name FROM peers WHERE name = ? COLLATE NOCASE').get(to) as any;
+      const msgErr = validateMessage(message);
+      if (msgErr) return textResult(msgErr);
+
+      const target = stmts.selectPeerByName.get(to) as Peer | undefined;
       if (!target) {
-        const peers = (db.prepare('SELECT name FROM peers WHERE id != ?').all(myId) as any[]).map((p: any) => p.name);
-        return { content: [{ type: 'text' as const, text: `"${to}" not found. Peers: ${peers.join(', ') || 'none'}` }] };
+        const peers = (stmts.selectPeerNames.all(myId) as Peer[]).map(p => p.name);
+        return textResult(`"${to}" not found. Peers: ${peers.join(', ') || 'none'}`);
       }
 
-      db.prepare('INSERT INTO messages (from_id, to_id, content) VALUES (?, ?, ?)').run(myId, target.id, message);
-      return { content: [{ type: 'text' as const, text: `Sent to ${target.name}. STOP — do not call any more tools. Reply will arrive automatically.` }] };
+      stmts.insertMessage.run(myId, target.id, message);
+      return textResult(`Sent to ${target.name}. STOP — do not call any more tools. Reply will arrive automatically.`);
     }
 
     case 'list_peers': {
-      const peers = db.prepare('SELECT name, role FROM peers ORDER BY last_seen DESC').all() as any[];
-      if (!peers.length) return { content: [{ type: 'text' as const, text: 'No peers online.' }] };
-      const lines = peers.map((p: any) => `- ${p.name}${p.role ? ` (${p.role})` : ''}${p.name === myName ? ' (you)' : ''}`);
-      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      const peers = stmts.selectAllPeers.all() as Peer[];
+      if (!peers.length) return textResult('No peers online.');
+      const lines = peers.map(p => `- ${p.name}${p.role ? ` (${p.role})` : ''}${p.name === myName ? ' (you)' : ''}`);
+      return textResult(lines.join('\n'));
     }
 
     case 'get_messages': {
-      if (!myName) return { content: [{ type: 'text' as const, text: 'Register first.' }] };
-      const msgs = db.prepare(`
-        SELECT m.id, m.content, p.name as sender
-        FROM messages m JOIN peers p ON m.from_id = p.id
-        WHERE m.to_id = ? AND m.delivered = 0 ORDER BY m.created_at
-      `).all(myId) as any[];
+      if (!myName) return textResult('Register first.');
+      const msgs = readAndDeliver(myId);
 
-      if (!msgs.length) return { content: [{ type: 'text' as const, text: 'No new messages. STOP — do not call get_messages again.' }] };
+      if (!msgs.length) return textResult('No new messages. STOP — do not call get_messages again.');
 
-      const ids = msgs.map((m: any) => m.id);
-      db.prepare(`UPDATE messages SET delivered = 1 WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
-      const lines = msgs.map((m: any) => `From ${m.sender}: ${m.content}`);
-      const replyTo = [...new Set(msgs.map((m: any) => m.sender))].join(', ');
-      const text = lines.join('\n') + `\n\n→ Reply to ${replyTo} using send_message(to: "${msgs[0].sender}"). Do NOT call get_messages again.`;
-      return { content: [{ type: 'text' as const, text }] };
+      const lines = msgs.map(m => `From ${m.sender}: ${m.content}`);
+      const senders = [...new Set(msgs.map(m => m.sender))];
+      const text = lines.join('\n') + `\n\n→ Reply to ${senders.join(', ')} using send_message(to: "${msgs[0].sender}"). Do NOT call get_messages again.`;
+      return textResult(text);
     }
 
     default:
-      throw new Error(`Unknown tool: ${name}`);
+      return textResult(`Unknown tool: ${name}`);
   }
 });
 
-// ─── Heartbeat: keep peer alive in DB ─────────────────────
+// ─── Heartbeat ────────────────────────────────────────────
 function startHeartbeat() {
   setInterval(() => {
+    if (!myName || !dbOpen) return;
     try {
-      if (!myName || !dbOpen) return;
-      db.prepare("UPDATE peers SET last_seen = datetime('now') WHERE id = ?").run(myId);
-    } catch {}
-  }, 5000);
+      stmts.heartbeat.run(myId);
+    } catch (err) {
+      console.error('[multi-claude] heartbeat error:', err);
+    }
+  }, CONFIG.heartbeatIntervalMs);
 }
 
-// ─── Cleanup & Start ───────────────────────────────────────
-process.on('uncaughtException', () => {});
-process.on('unhandledRejection', () => {});
-
+// ���── Cleanup & Start ──────────────────────────────────────
 function cleanup() {
   if (!dbOpen) return;
   dbOpen = false;
   try {
-    db.prepare('DELETE FROM peers WHERE id = ?').run(myId);
+    stmts.deletePeerById.run(myId);
     db.close();
-  } catch {}
+  } catch (err) {
+    console.error('[multi-claude] cleanup error:', err);
+  }
 }
 
 process.on('SIGINT', () => { cleanup(); process.exit(0); });
 process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+process.on('uncaughtException', (err) => {
+  console.error('[multi-claude] uncaught exception:', err);
+  cleanup();
+  process.exit(1);
+});
 
 async function main() {
   const transport = new StdioServerTransport();
@@ -194,4 +278,11 @@ async function main() {
   startHeartbeat();
 }
 
-main().catch(() => process.exit(1));
+main().catch((err) => {
+  console.error('[multi-claude] fatal:', err);
+  process.exit(1);
+});
+
+// ─── Exports for testing ──────────────────────────────────
+export { CONFIG, validatePeerName, validateMessage };
+export type { Peer, Message, InboxMessage };

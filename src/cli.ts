@@ -5,12 +5,37 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
+// ─── Types ────────────────────────────────────────────────
+interface HookDef {
+  type: string;
+  command: string;
+  statusMessage?: string;
+}
+
+interface HookEntry {
+  matcher: string;
+  hooks: HookDef[];
+}
+
+interface ClaudeSettings {
+  hooks?: Record<string, HookEntry[]>;
+  [key: string]: unknown;
+}
+
+interface InboxRow {
+  content: string;
+  sender: string;
+  recipient: string;
+}
+
+// ─── Colors ───────────────────────────────────────────────
 const BOLD = '\x1b[1m';
 const GREEN = '\x1b[32m';
 const RED = '\x1b[31m';
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
 
+// ─── Main ─────────────────────────────────────────────────
 const command = process.argv[2];
 const args = process.argv.slice(3);
 
@@ -65,12 +90,12 @@ function setup() {
   try {
     execSync(`claude mcp add multi-claude -- ${serveCommand}`, { stdio: 'pipe' });
     console.log(`${GREEN}  OK${RESET} MCP server registered`);
-  } catch (err: any) {
-    const msg = err.stderr?.toString() || '';
+  } catch (err: unknown) {
+    const msg = (err as { stderr?: Buffer })?.stderr?.toString() ?? '';
     if (msg.includes('already exists')) {
       console.log(`${GREEN}  OK${RESET} MCP server already registered`);
     } else {
-      console.error(`${RED}  FAIL${RESET} ${msg.trim()}`);
+      console.error(`${RED}  FAIL${RESET} ${msg.trim() || 'Unknown error'}`);
       process.exit(1);
     }
   }
@@ -78,27 +103,26 @@ function setup() {
   // 3. Configure hooks
   console.log(`${DIM}[2/3]${RESET} Configuring hooks...`);
   const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-  let settings: any = {};
+  let settings: ClaudeSettings = {};
 
   try {
-    settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as ClaudeSettings;
   } catch {
     // File doesn't exist or invalid JSON — start fresh
   }
 
-  settings.hooks = settings.hooks || {};
-  const hookCommand = inboxCommand;
-  const hookEntry = {
+  settings.hooks = settings.hooks ?? {};
+  const hookEntry: HookEntry = {
     matcher: '',
-    hooks: [{ type: 'command', command: hookCommand, statusMessage: 'checking peer messages' }],
+    hooks: [{ type: 'command', command: inboxCommand, statusMessage: 'checking peer messages' }],
   };
 
   let modified = false;
 
-  for (const event of ['UserPromptSubmit', 'Stop'] as const) {
-    settings.hooks[event] = settings.hooks[event] || [];
-    const exists = settings.hooks[event].some((h: any) =>
-      h.hooks?.some((hh: any) => hh.command === hookCommand)
+  for (const event of ['UserPromptSubmit', 'Stop']) {
+    settings.hooks[event] = settings.hooks[event] ?? [];
+    const exists = settings.hooks[event].some(h =>
+      h.hooks?.some(hh => hh.command === inboxCommand)
     );
     if (!exists) {
       settings.hooks[event].push(hookEntry);
@@ -148,17 +172,18 @@ function inbox() {
       WHERE m.delivered = 0
       ORDER BY m.created_at ASC
       LIMIT 10
-    `).all() as any[];
+    `).all() as InboxRow[];
 
     db.close();
 
     if (msgs.length > 0) {
-      const lines = msgs.map((m: any) => `  ${m.sender} -> ${m.recipient}: ${m.content}`);
+      const lines = msgs.map(m => `  ${m.sender} -> ${m.recipient}: ${m.content}`);
       console.log(
         `[multi-claude] ${msgs.length} unread message(s):\n${lines.join('\n')}\n\nUse get_messages tool to read and respond to these messages.`
       );
     }
-  } catch {
+  } catch (err) {
+    console.error('[multi-claude] inbox error:', err);
     process.exit(0);
   }
 }
