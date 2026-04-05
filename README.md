@@ -37,12 +37,17 @@ npm run setup
 
 Setup registers the MCP server and hooks globally — works in every Claude session after this.
 
-**Optional:** Add a shortcut to start the wrapper from any directory:
+**Optional:** Add a global shortcut for the wrapper:
 
 ```bash
-# Add to ~/.zshrc or ~/.bashrc
-alias mcc='python3 ~/path/to/multi-claude/src/connect.py'
+sudo tee /usr/local/bin/mcc << 'EOF' > /dev/null
+#!/bin/bash
+exec python3 ~/path/to/multi-claude/src/connect.py "$@"
+EOF
+sudo chmod +x /usr/local/bin/mcc
 ```
+
+Replace `~/path/to/multi-claude` with the actual clone path. Now `mcc alice` works from any terminal.
 
 ## Usage
 
