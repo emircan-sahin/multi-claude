@@ -75,7 +75,7 @@ npx multi-claude setup
 git clone https://github.com/emircan-sahin/multi-claude.git
 cd multi-claude
 npm install
-node dist/cli.js setup
+npm run setup
 ```
 
 Both options register the MCP server and configure hooks automatically.

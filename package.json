@@ -12,6 +12,8 @@
   ],
   "scripts": {
     "build": "tsc",
+    "postinstall": "npm run build",
+    "setup": "node dist/cli.js setup",
     "start": "tsx src/orchestrator.ts",
     "connect": "python3 src/connect.py",
     "prepublishOnly": "npm run build"
