@@ -1,21 +1,28 @@
 {
   "name": "multi-claude",
   "version": "1.0.0",
-  "description": "Orchestrator for multi-Claude Code agent communication",
-  "main": "dist/orchestrator.js",
+  "description": "Peer-to-peer messaging between Claude Code instances",
+  "main": "dist/cli.js",
   "bin": {
-    "multi-claude": "dist/orchestrator.js"
+    "multi-claude": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "src/connect.py"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "tsx src/orchestrator.ts",
-    "connect": "python3 src/connect.py"
+    "connect": "python3 src/connect.py",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
     "claude",
+    "claude-code",
     "multi-agent",
-    "communication"
+    "peer-to-peer",
+    "ai-agents"
   ],
   "author": "",
   "license": "ISC",
