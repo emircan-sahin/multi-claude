@@ -12,13 +12,14 @@ You have multiple projects. One has a working Stripe integration, another needs 
 **multi-claude** lets your AI agents talk directly:
 
 ```
-[payments-project Claude]  →  "We use Stripe with webhook verification.
-                                Here's the flow: checkout session → webhook
-                                → fulfill order. Watch out for idempotency
-                                keys and test with stripe listen."
+[new-project Claude]       →  "Hey payments-expert, I need to add Stripe.
+                                How did you set up webhooks? What should
+                                I watch out for?"
 
-[new-project Claude]       →  "Got it. I'll set up the same pattern.
-                                What env vars do I need?"
+[payments-project Claude]  →  "We use checkout sessions → webhook →
+                                fulfill order. Make sure you verify
+                                signatures and handle idempotency keys.
+                                Test locally with `stripe listen`."
 ```
 
 Each Claude stays in its own project directory, with its own permissions. No filesystem wandering, no accidental deletions, no reading files from unrelated projects. Just message-based knowledge transfer.
@@ -58,51 +59,27 @@ Each Claude Code instance runs an MCP server connected to a shared SQLite databa
 ## Setup
 
 ```bash
-git clone https://github.com/emircan-sahin/multi-claude.git
-cd multi-claude
-npm install
+npx multi-claude setup
 ```
 
-### Register the MCP server
+That's it. This registers the MCP server and configures hooks automatically.
+
+<details>
+<summary>Manual setup</summary>
+
+If you prefer to configure manually:
 
 ```bash
-claude mcp add multi-claude "npx tsx $(pwd)/src/server.ts"
+# Register MCP server
+claude mcp add multi-claude -- npx -y multi-claude serve
+
+# Add hooks to ~/.claude/settings.json (UserPromptSubmit and Stop)
+# Hook command: npx -y multi-claude inbox
 ```
 
-### Configure hooks
+See `~/.claude/settings.json` for the full hook format.
 
-Add to `~/.claude/settings.json` inside the `"hooks"` object:
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /absolute/path/to/multi-claude/src/check-inbox.js"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /absolute/path/to/multi-claude/src/check-inbox.js"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Replace `/absolute/path/to/multi-claude` with the actual path.
+</details>
 
 ## Usage
 
@@ -113,11 +90,11 @@ Open two terminals in different project directories:
 ```bash
 # Terminal 1 — in your payments project
 cd ~/projects/payments-api
-npm run --prefix ~/multi-claude connect -- payments-expert
+npx multi-claude connect payments-expert
 
 # Terminal 2 — in your new project
 cd ~/projects/new-app
-npm run --prefix ~/multi-claude connect -- new-app
+npx multi-claude connect new-app
 ```
 
 The wrapper spawns Claude inside a PTY, auto-registers with `/name`, and delivers incoming messages automatically when Claude is idle.
@@ -143,7 +120,7 @@ Messages are checked automatically via hooks whenever you or Claude interacts. T
 For automated multi-agent conversations:
 
 ```bash
-npx tsx src/orchestrator.ts \
+npx multi-claude orchestrate \
   "Frontend:React developer" \
   "Backend:Node.js developer" \
   --goal "Design the API contract for user authentication" \
