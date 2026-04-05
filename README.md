@@ -2,6 +2,8 @@
 
 Let your Claude Code instances talk to each other.
 
+> **Recommended:** Use [auto-delivery mode](#2-auto-delivery-mode) for the best experience — messages are delivered and responded to automatically without any manual intervention.
+
 ## Why?
 
 You have multiple projects. One already has Stripe payments working, another needs it. Without multi-claude:
