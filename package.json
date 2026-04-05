@@ -1,0 +1,33 @@
+{
+  "name": "multi-claude",
+  "version": "1.0.0",
+  "description": "Orchestrator for multi-Claude Code agent communication",
+  "main": "dist/orchestrator.js",
+  "bin": {
+    "multi-claude": "dist/orchestrator.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/orchestrator.ts",
+    "connect": "python3 src/connect.py"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "multi-agent",
+    "communication"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.5.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.8.0"
+  }
+}
