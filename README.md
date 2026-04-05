@@ -63,28 +63,22 @@ Each Claude Code instance runs an MCP server connected to a shared SQLite databa
 
 ## Setup
 
+### Option A: npx (no clone needed)
+
 ```bash
 npx multi-claude setup
 ```
 
-That's it. This registers the MCP server and configures hooks automatically.
-
-<details>
-<summary>Manual setup</summary>
-
-If you prefer to configure manually:
+### Option B: git clone
 
 ```bash
-# Register MCP server
-claude mcp add multi-claude -- npx -y multi-claude serve
-
-# Add hooks to ~/.claude/settings.json (UserPromptSubmit and Stop)
-# Hook command: npx -y multi-claude inbox
+git clone https://github.com/emircan-sahin/multi-claude.git
+cd multi-claude
+npm install
+node dist/cli.js setup
 ```
 
-See `~/.claude/settings.json` for the full hook format.
-
-</details>
+Both options register the MCP server and configure hooks automatically.
 
 ## Usage
 

@@ -43,10 +43,27 @@ function setup() {
     process.exit(1);
   }
 
+  // Detect if running from local clone or npx
+  const cliDir = path.resolve(__dirname);
+  const localServerJs = path.join(cliDir, 'server.js');
+  const localCliJs = path.join(cliDir, 'cli.js');
+  const isLocal = fs.existsSync(localServerJs) && !cliDir.includes('.npm');
+
+  const serveCommand = isLocal
+    ? `node ${localServerJs}`
+    : 'npx -y multi-claude serve';
+  const inboxCommand = isLocal
+    ? `node ${localCliJs} inbox`
+    : 'npx -y multi-claude inbox';
+
+  if (isLocal) {
+    console.log(`${DIM}Detected local install: ${path.resolve(cliDir, '..')}${RESET}\n`);
+  }
+
   // 2. Add MCP server
   console.log(`${DIM}[1/3]${RESET} Registering MCP server...`);
   try {
-    execSync('claude mcp add multi-claude -- npx -y multi-claude serve', { stdio: 'pipe' });
+    execSync(`claude mcp add multi-claude -- ${serveCommand}`, { stdio: 'pipe' });
     console.log(`${GREEN}  OK${RESET} MCP server registered`);
   } catch (err: any) {
     const msg = err.stderr?.toString() || '';
@@ -70,7 +87,7 @@ function setup() {
   }
 
   settings.hooks = settings.hooks || {};
-  const hookCommand = 'npx -y multi-claude inbox';
+  const hookCommand = inboxCommand;
   const hookEntry = {
     matcher: '',
     hooks: [{ type: 'command', command: hookCommand, statusMessage: 'checking peer messages' }],
