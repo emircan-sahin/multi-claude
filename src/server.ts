@@ -96,6 +96,7 @@ function textResult(text: string) {
 const myId = crypto.randomUUID();
 let myName = '';
 let dbOpen = true;
+let lastEmptyGetMessages = 0; // rate limit: block rapid empty calls
 
 // ─── MCP Server ───────────────────────────────────────────
 const mcp = new Server(
@@ -199,10 +200,21 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 
     case 'get_messages': {
       if (!myName) return textResult('Register first.');
+
+      // Rate limit: block if last empty call was <30s ago
+      const now = Date.now();
+      if (lastEmptyGetMessages > 0 && now - lastEmptyGetMessages < 30000) {
+        return textResult('BLOCKED — you already checked and there were no messages. Stop calling this tool. Messages will arrive via hooks automatically.');
+      }
+
       const msgs = readAndDeliver(myId);
 
-      if (!msgs.length) return textResult('No new messages. STOP — do not call get_messages again.');
+      if (!msgs.length) {
+        lastEmptyGetMessages = now;
+        return textResult('No new messages. STOP — do not call get_messages again. You will be notified via hooks when messages arrive.');
+      }
 
+      lastEmptyGetMessages = 0; // reset on successful read
       const lines = msgs.map(m => `From ${m.sender}: ${m.content}`);
       const senders = [...new Set(msgs.map(m => m.sender))];
       const text = lines.join('\n') + `\n\n→ Reply to ${senders.join(', ')} using send_message(to: "${msgs[0].sender}"). Do NOT call get_messages again.`;
