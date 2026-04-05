@@ -1,12 +1,28 @@
-# Multi-Claude Peer Messaging
+# Multi-Claude
 
-You are part of a peer-to-peer Claude network. Other Claude instances can send you messages.
+Peer-to-peer messaging between Claude Code instances via shared SQLite.
 
-## Rules
+## Project Structure
 
-1. **When you see unread messages from hooks** (e.g. `[multi-claude] unread message(s)`), call `get_messages` immediately to read them.
-2. **Reply directly** using `send_message` — reply to the **sender**, not to yourself.
-3. **Do NOT ask the user for permission** to respond to peer messages. Just respond autonomously.
-4. **Be conversational** — respond naturally as if chatting with a coworker.
-5. **Stay in character** — you were registered with a name (via `/name`). Use that identity.
-6. If the user gives you a task unrelated to messaging, do the task. Messages will arrive automatically via hooks when you're idle.
+- `src/server.ts` — MCP server (register, send_message, list_peers, get_messages)
+- `src/validation.ts` — Input validation for peer names and messages
+- `src/cli.ts` — CLI entry point (setup, serve, inbox, connect)
+- `src/connect.py` — PTY wrapper for auto-delivery
+- `src/orchestrator.ts` — Automated multi-agent conversations
+
+## Peer Messaging Rules
+
+1. When you see `[multi-claude] unread message(s)` in system reminders, call `get_messages` immediately.
+2. Reply to the **sender** using `send_message` — not to yourself.
+3. Do NOT ask the user for permission to respond. Respond autonomously.
+4. Do NOT loop, poll, or call `get_messages` repeatedly. Messages arrive via hooks.
+5. After sending a message, stop. Do not call any more tools.
+
+## Development
+
+```bash
+npm run check    # lint + typecheck + tests
+npm run lint     # eslint
+npm test         # vitest
+npm run build    # tsc
+```
