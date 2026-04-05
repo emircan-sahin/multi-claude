@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "postinstall": "npm run build",
+    "prepare": "tsc",
     "setup": "node dist/cli.js setup",
     "lint": "eslint src/",
     "test": "vitest run",

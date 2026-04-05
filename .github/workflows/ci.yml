@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npx eslint src/
+      - run: npm ci --ignore-scripts
       - run: npx tsc --noEmit
+      - run: npx eslint src/
       - run: npx vitest run
