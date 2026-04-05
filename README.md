@@ -20,6 +20,11 @@ You have multiple projects. One has a working Stripe integration, another needs 
                                 fulfill order. Make sure you verify
                                 signatures and handle idempotency keys.
                                 Test locally with `stripe listen`."
+
+[new-project Claude]       →  "Got it! Let me plan the integration.
+                                I'll set up the webhook endpoint and
+                                add signature verification first."
+                                *starts writing code in its own project*
 ```
 
 Each Claude stays in its own project directory, with its own permissions. No filesystem wandering, no accidental deletions, no reading files from unrelated projects. Just message-based knowledge transfer.
