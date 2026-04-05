@@ -120,12 +120,15 @@ function setup() {
   fs.mkdirSync(dataDir, { recursive: true });
   console.log(`${GREEN}  OK${RESET} ${dataDir}`);
 
+  const connectPyPath = path.resolve(__dirname, '..', 'src', 'connect.py');
+
   console.log(`\n${GREEN}${BOLD}Setup complete!${RESET}\n`);
-  console.log(`Usage:`);
-  console.log(`  ${DIM}# In any Claude Code session:${RESET}`);
-  console.log(`  /name alice\n`);
-  console.log(`  ${DIM}# Or with auto-delivery:${RESET}`);
-  console.log(`  npx multi-claude connect alice\n`);
+  console.log(`${BOLD}Quick start:${RESET}`);
+  console.log(`  Open Claude Code anywhere and type: /name alice\n`);
+  console.log(`${BOLD}Auto-delivery (recommended):${RESET}`);
+  console.log(`  Add this alias to ~/.zshrc or ~/.bashrc:`);
+  console.log(`  ${DIM}alias mcc='python3 ${connectPyPath}'${RESET}\n`);
+  console.log(`  Then run: mcc alice\n`);
 }
 
 // ─── Inbox (hook script) ──────────────────────────────────
