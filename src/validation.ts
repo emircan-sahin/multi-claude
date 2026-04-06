@@ -2,7 +2,7 @@
 export const CONFIG = {
   heartbeatIntervalMs: 5000,
   peerNameMaxLength: 32,
-  peerNamePattern: /^[a-zA-Z0-9_-]+$/,
+  peerNamePattern: /^[a-zA-Z0-9_ -]+$/,
   messageMaxLength: 10000,
 } as const;
 
@@ -12,7 +12,7 @@ export function validatePeerName(name: string): string | null {
     return `Name must be 1-${CONFIG.peerNameMaxLength} characters.`;
   }
   if (!CONFIG.peerNamePattern.test(name)) {
-    return 'Name must contain only letters, numbers, hyphens, and underscores.';
+    return 'Name must contain only letters, numbers, spaces, hyphens, and underscores.';
   }
   return null;
 }

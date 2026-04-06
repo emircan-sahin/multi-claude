@@ -17,8 +17,12 @@ describe('validatePeerName', () => {
     expect(validatePeerName(long)).toContain('characters');
   });
 
+  it('accepts names with spaces', () => {
+    expect(validatePeerName('alice bob')).toBeNull();
+    expect(validatePeerName('frontend developer')).toBeNull();
+  });
+
   it('rejects names with special characters', () => {
-    expect(validatePeerName('alice bob')).toContain('letters');
     expect(validatePeerName('alice@bob')).toContain('letters');
     expect(validatePeerName('alice/bob')).toContain('letters');
   });

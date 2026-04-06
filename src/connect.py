@@ -55,10 +55,20 @@ def parse_args():
     claude_args = []
     session_id = None
 
-    # First arg is peer name if it doesn't start with -
-    if args and not args[0].startswith('-'):
-        peer_name = args[0]
-        claude_args = args[1:]
+    # Collect all positional args (before any --flag) as the peer name
+    name_parts = []
+    rest = args
+    for i, arg in enumerate(args):
+        if arg.startswith('-'):
+            rest = args[i:]
+            break
+        name_parts.append(arg)
+    else:
+        rest = []
+
+    if name_parts:
+        peer_name = ' '.join(name_parts)
+        claude_args = rest
     else:
         claude_args = args
 
