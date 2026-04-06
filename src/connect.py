@@ -2,14 +2,17 @@
 """
 multi-claude connect — PTY wrapper that auto-injects peer messages into Claude Code.
 
-Usage: python3 connect.py <name>
-Example: python3 connect.py selim
+Usage:
+  mcc <name>                  Start new session as <name>
+  mcc <name> --resume <id>    Resume session as <name>
+  mcc --resume <id>           Resume session (name looked up from saved sessions)
 """
 
 import pty
 import tty
 import os
 import sys
+import json
 import select
 import signal
 import fcntl
@@ -17,21 +20,73 @@ import termios
 import sqlite3
 import time
 import shutil
+import uuid
 
-# ─── Args ──────────────────────────────────────────────────
-# If first arg starts with --, no peer name — all args go to claude
-# mcc selim                → name=selim, claude_args=[]
-# mcc selim --resume abc   → name=selim, claude_args=[--resume, abc]
-# mcc --resume abc         → name=None,  claude_args=[--resume, abc]
-# mcc                      → name=None,  claude_args=[]
-if len(sys.argv) > 1 and not sys.argv[1].startswith('-'):
-    PEER_NAME = sys.argv[1]
-    CLAUDE_EXTRA_ARGS = sys.argv[2:]
-else:
-    PEER_NAME = None
-    CLAUDE_EXTRA_ARGS = sys.argv[1:]
-DB_PATH = os.path.expanduser("~/.multi-claude/messages.db")
+# ─── Config ────────────────────────────────────────────────
+DATA_DIR = os.path.expanduser("~/.multi-claude")
+DB_PATH = os.path.join(DATA_DIR, "messages.db")
+SESSIONS_PATH = os.path.join(DATA_DIR, "sessions.json")
 CLAUDE_BIN = shutil.which("claude") or "claude"
+
+IDLE_THRESHOLD_S = 2.0
+POLL_INTERVAL_S = 2.0
+INJECT_COOLDOWN_S = 5.0
+AUTO_REGISTER_DELAY_S = 3.0
+
+# ─── Session store ─────────────────────────────────────────
+def load_sessions():
+    try:
+        with open(SESSIONS_PATH, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_session(session_id, peer_name):
+    sessions = load_sessions()
+    sessions[session_id] = peer_name
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(SESSIONS_PATH, "w") as f:
+        json.dump(sessions, f, indent=2)
+
+# ─── Parse args ────────────────────────────────────────────
+def parse_args():
+    args = sys.argv[1:]
+    peer_name = None
+    claude_args = []
+    session_id = None
+
+    # First arg is peer name if it doesn't start with -
+    if args and not args[0].startswith('-'):
+        peer_name = args[0]
+        claude_args = args[1:]
+    else:
+        claude_args = args
+
+    # Extract --resume session ID from claude args
+    for i, arg in enumerate(claude_args):
+        if arg == '--resume' and i + 1 < len(claude_args):
+            session_id = claude_args[i + 1]
+            break
+
+    # If no peer name but we have a session ID, look it up
+    if not peer_name and session_id:
+        sessions = load_sessions()
+        peer_name = sessions.get(session_id)
+        if peer_name:
+            print(f"[mcc] Reconnecting as '{peer_name}' from saved session", file=sys.stderr)
+
+    # If new session (no --resume) and we have a name, generate session ID
+    if peer_name and not session_id:
+        session_id = str(uuid.uuid4())
+        claude_args = ['--session-id', session_id] + claude_args
+
+    # Save session → name mapping
+    if peer_name and session_id:
+        save_session(session_id, peer_name)
+
+    return peer_name, claude_args
+
+PEER_NAME, CLAUDE_EXTRA_ARGS = parse_args()
 
 # ─── State ─────────────────────────────────────────────────
 master_fd = -1
@@ -75,7 +130,6 @@ def check_pending_messages():
 
 # ─── Terminal helpers ──────────────────────────────────────
 def set_winsize(fd):
-    """Copy current terminal size to the PTY."""
     try:
         size = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, b'\x00' * 8)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, size)
@@ -83,7 +137,6 @@ def set_winsize(fd):
         pass
 
 def handle_sigwinch(signum, frame):
-    """Forward window resize to the PTY."""
     if master_fd >= 0:
         set_winsize(master_fd)
         os.kill(child_pid, signal.SIGWINCH)
@@ -92,26 +145,20 @@ def handle_sigwinch(signum, frame):
 def main():
     global master_fd, child_pid, last_output_time, injecting, registered, old_termios
 
-    # Fork a PTY and exec Claude
     child_pid, master_fd = pty.fork()
 
     if child_pid == 0:
-        # Child: exec Claude with extra args
         os.execvp(CLAUDE_BIN, [CLAUDE_BIN] + CLAUDE_EXTRA_ARGS)
         sys.exit(1)
 
-    # Parent: set up terminal
     old_termios = termios.tcgetattr(sys.stdin.fileno())
     try:
         tty.setraw(sys.stdin.fileno(), termios.TCSANOW)
-
         set_winsize(master_fd)
         signal.signal(signal.SIGWINCH, handle_sigwinch)
 
-        # Schedule auto-register after 3 seconds
-        register_time = time.time() + 3.0
+        register_time = time.time() + AUTO_REGISTER_DELAY_S
         register_sent = False
-
         last_output_time = time.time()
         last_check_time = time.time()
 
@@ -123,7 +170,6 @@ def main():
 
             now = time.time()
 
-            # Forward stdin → PTY
             if sys.stdin.fileno() in rlist:
                 try:
                     data = os.read(sys.stdin.fileno(), 4096)
@@ -133,7 +179,6 @@ def main():
                 except OSError:
                     break
 
-            # Forward PTY → stdout
             if master_fd in rlist:
                 try:
                     data = os.read(master_fd, 4096)
@@ -144,38 +189,32 @@ def main():
                 except OSError:
                     break
 
-            # Auto-register: send /name command once (only if name provided)
+            # Auto-register
             if PEER_NAME and not register_sent and now >= register_time:
                 register_sent = True
-                cmd = f"/name {PEER_NAME}\r"
-                os.write(master_fd, cmd.encode())
+                os.write(master_fd, f"/name {PEER_NAME}\r".encode())
 
             # Check registration
             if PEER_NAME and not registered and register_sent and now - register_time > 5:
                 registered = check_registered()
 
-            # Check for pending messages every 2 seconds
-            if registered and not injecting and (now - last_check_time) >= 2.0:
+            # Check for pending messages
+            if registered and not injecting and (now - last_check_time) >= POLL_INTERVAL_S:
                 last_check_time = now
                 idle_duration = now - last_output_time
 
-                # Only inject if Claude has been idle for 2+ seconds
-                if idle_duration >= 2.0 and check_pending_messages():
+                if idle_duration >= IDLE_THRESHOLD_S and check_pending_messages():
                     injecting = True
-                    # Type trigger into Claude's input
                     os.write(master_fd, b"check messages\r")
-                    # Cooldown
                     time.sleep(0.1)
                     last_output_time = now
 
-            # Reset injection lock after cooldown
-            if injecting and (now - last_output_time) >= 5.0:
+            if injecting and (now - last_output_time) >= INJECT_COOLDOWN_S:
                 injecting = False
 
     except KeyboardInterrupt:
         pass
     finally:
-        # Restore terminal
         if old_termios:
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_termios)
         try:
