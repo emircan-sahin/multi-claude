@@ -98,6 +98,46 @@ def parse_args():
 
 PEER_NAME, CLAUDE_EXTRA_ARGS = parse_args()
 
+# ─── Per-instance MCP config ──────────────────────────────
+# Create isolated MCP config per session to avoid race conditions
+# when multiple Claude Code instances read ~/.claude.json simultaneously.
+MCP_CONFIG_PATH = None
+
+def create_mcp_config():
+    global MCP_CONFIG_PATH, CLAUDE_EXTRA_ARGS
+    # Find session ID from args
+    session_id = None
+    for i, arg in enumerate(CLAUDE_EXTRA_ARGS):
+        if arg == '--session-id' and i + 1 < len(CLAUDE_EXTRA_ARGS):
+            session_id = CLAUDE_EXTRA_ARGS[i + 1]
+            break
+    if not session_id:
+        return
+
+    server_ts = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'server.ts')
+    config = {
+        "multi-claude": {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["tsx", server_ts],
+            "env": {"MULTI_CLAUDE_SESSION_ID": session_id}
+        }
+    }
+    os.makedirs(DATA_DIR, exist_ok=True)
+    MCP_CONFIG_PATH = os.path.join(DATA_DIR, f"mcp-{session_id}.json")
+    with open(MCP_CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2)
+    CLAUDE_EXTRA_ARGS = ['--mcp-config', MCP_CONFIG_PATH] + CLAUDE_EXTRA_ARGS
+
+def cleanup_mcp_config():
+    if MCP_CONFIG_PATH and os.path.exists(MCP_CONFIG_PATH):
+        try:
+            os.unlink(MCP_CONFIG_PATH)
+        except Exception:
+            pass
+
+create_mcp_config()
+
 # ─── State ─────────────────────────────────────────────────
 master_fd = -1
 child_pid = -1
@@ -154,13 +194,6 @@ def handle_sigwinch(signum, frame):
 # ─── Main ──────────────────────────────────────────────────
 def main():
     global master_fd, child_pid, last_output_time, injecting, registered, old_termios
-
-    # Pass session ID to MCP server via env var
-    if CLAUDE_EXTRA_ARGS:
-        for i, arg in enumerate(CLAUDE_EXTRA_ARGS):
-            if arg == '--session-id' and i + 1 < len(CLAUDE_EXTRA_ARGS):
-                os.environ['MULTI_CLAUDE_SESSION_ID'] = CLAUDE_EXTRA_ARGS[i + 1]
-                break
 
     child_pid, master_fd = pty.fork()
 
@@ -239,6 +272,7 @@ def main():
             os.waitpid(child_pid, 0)
         except Exception:
             pass
+        cleanup_mcp_config()
 
 if __name__ == "__main__":
     main()

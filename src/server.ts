@@ -16,14 +16,6 @@ import { CONFIG, validatePeerName, validateMessage } from './validation';
 
 // ─── Config ───────────────────────────────────────────────
 const DB_DIR = path.join(os.homedir(), '.multi-claude');
-const LOG_PATH = path.join(DB_DIR, 'server.log');
-
-function log(msg: string) {
-  try {
-    const ts = new Date().toISOString();
-    fs.appendFileSync(LOG_PATH, `${ts} ${msg}\n`);
-  } catch { /* ignore log failures */ }
-}
 
 // ─── Types ────────────────────────────────────────────────
 interface Peer {
@@ -260,24 +252,22 @@ function cleanup() {
   }
 }
 
-process.on('SIGINT', () => { log('SIGINT'); cleanup(); process.exit(0); });
-process.on('SIGTERM', () => { log('SIGTERM'); cleanup(); process.exit(0); });
+process.on('SIGINT', () => { cleanup(); process.exit(0); });
+process.on('SIGTERM', () => { cleanup(); process.exit(0); });
 process.on('uncaughtException', (err) => {
-  log(`uncaught exception: ${err.stack ?? err.message}`);
+  console.error('[multi-claude] uncaught exception:', err);
   cleanup();
   process.exit(1);
 });
 
 async function main() {
-  log(`starting (myId=${myId})`);
   const transport = new StdioServerTransport();
   await mcp.connect(transport);
   startHeartbeat();
-  log('ready');
 }
 
 main().catch((err) => {
-  log(`fatal: ${err.stack ?? err.message}`);
+  console.error('[multi-claude] fatal:', err);
   process.exit(1);
 });
 

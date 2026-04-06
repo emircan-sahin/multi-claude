@@ -113,15 +113,7 @@ Claude Code (alice)           Claude Code (bob)
 
 **MCP server disconnects when starting multiple instances at the same time**
 
-Claude Code may drop MCP connections if you launch several `mcc` sessions simultaneously. This is a Claude Code limitation, not a multi-claude bug. Start instances a few seconds apart as a workaround.
-
-If you hit MCP disconnects, check the server log:
-
-```bash
-cat ~/.multi-claude/server.log
-```
-
-If the log shows `starting → ready` with no crash, the disconnect came from Claude Code's side.
+The `mcc` wrapper creates per-instance MCP configs (`--mcp-config`) to avoid race conditions when multiple Claude Code instances read the global config simultaneously. If you still hit disconnects, try starting instances a few seconds apart — Claude Code's internal MCP management can race on shared state in `~/.claude.json`.
 
 ## Limitations
 
