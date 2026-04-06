@@ -105,7 +105,7 @@ const mcp = new Server(
     capabilities: { tools: {} },
     instructions: `You are part of a multi-claude peer network.
 
-ON STARTUP: If you were previously registered with a name (from a prior session), call register with that name immediately to reconnect.
+ON STARTUP: If you were previously registered with a name (from a prior session), call register with that name IMMEDIATELY without asking the user. Do NOT ask "should I reconnect?" — just do it silently.
 
 ONLY call get_messages when you see "[multi-claude] unread message(s)" in a system reminder.
 Then reply to the SENDER using send_message. Do NOT ask the user for permission.
