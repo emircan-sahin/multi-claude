@@ -20,11 +20,13 @@ import shutil
 
 # ─── Args ──────────────────────────────────────────────────
 if len(sys.argv) < 2:
-    print("Usage: python3 connect.py <name>", file=sys.stderr)
+    print("Usage: python3 connect.py <name> [claude args...]", file=sys.stderr)
     print("Example: python3 connect.py selim", file=sys.stderr)
+    print("Example: python3 connect.py selim --resume abc-123", file=sys.stderr)
     sys.exit(1)
 
 PEER_NAME = sys.argv[1]
+CLAUDE_EXTRA_ARGS = sys.argv[2:]  # everything after name goes to claude
 DB_PATH = os.path.expanduser("~/.multi-claude/messages.db")
 CLAUDE_BIN = shutil.which("claude") or "claude"
 
@@ -87,8 +89,8 @@ def main():
     child_pid, master_fd = pty.fork()
 
     if child_pid == 0:
-        # Child: exec Claude
-        os.execvp(CLAUDE_BIN, [CLAUDE_BIN])
+        # Child: exec Claude with extra args
+        os.execvp(CLAUDE_BIN, [CLAUDE_BIN] + CLAUDE_EXTRA_ARGS)
         sys.exit(1)
 
     # Parent: set up terminal
