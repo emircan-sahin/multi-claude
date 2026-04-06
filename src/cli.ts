@@ -162,26 +162,31 @@ function inbox() {
 
   try {
     const Database = require('better-sqlite3');
-    const db = new Database(dbPath, { readonly: true });
+    const db = new Database(dbPath);
 
     const msgs = db.prepare(`
-      SELECT m.content, p.name as sender, p2.name as recipient
+      SELECT m.id, m.content, p.name as sender, p2.name as recipient
       FROM messages m
       JOIN peers p ON m.from_id = p.id
       JOIN peers p2 ON m.to_id = p2.id
       WHERE m.delivered = 0
       ORDER BY m.created_at ASC
       LIMIT 10
-    `).all() as InboxRow[];
-
-    db.close();
+    `).all() as (InboxRow & { id: number })[];
 
     if (msgs.length > 0) {
-      const lines = msgs.map(m => `  ${m.sender} -> ${m.recipient}: ${m.content}`);
+      // Mark as delivered
+      const ids = msgs.map(m => m.id);
+      db.prepare(`UPDATE messages SET delivered = 1 WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+
+      const senders = [...new Set(msgs.map(m => m.sender))];
+      const lines = msgs.map(m => `  [${m.sender}]: ${m.content}`);
       console.log(
-        `[multi-claude] ${msgs.length} unread message(s):\n${lines.join('\n')}\n\nUse get_messages tool to read and respond to these messages.`
+        `[multi-claude] ${msgs.length} new message(s):\n${lines.join('\n')}\n\nReply using send_message(to: "${senders[0]}"). Do NOT call get_messages.`
       );
     }
+
+    db.close();
   } catch (err) {
     console.error('[multi-claude] inbox error:', err);
     process.exit(0);
