@@ -116,11 +116,13 @@ def create_mcp_config():
 
     server_ts = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'server.ts')
     config = {
-        "multi-claude": {
-            "type": "stdio",
-            "command": "npx",
-            "args": ["tsx", server_ts],
-            "env": {"MULTI_CLAUDE_SESSION_ID": session_id}
+        "mcpServers": {
+            "multi-claude": {
+                "type": "stdio",
+                "command": "npx",
+                "args": ["tsx", server_ts],
+                "env": {"MULTI_CLAUDE_SESSION_ID": session_id}
+            }
         }
     }
     os.makedirs(DATA_DIR, exist_ok=True)
