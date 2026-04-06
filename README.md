@@ -117,11 +117,11 @@ The `mcc` wrapper creates per-instance MCP configs (`--mcp-config`) to avoid rac
 
 ## Roadmap
 
-- **Multi-model** — choose which Claude model each peer uses (`mcc alice --model haiku`)
-- **Cross-AI communication** — adapters for Gemini CLI, Codex CLI, and others so different AI models can talk to each other through the same messaging layer
-- **Remote messaging** — replace local SQLite with WebSocket/HTTP for cross-machine communication
-- **Channels** — group messaging (`#backend`, `#frontend`) so multiple peers can follow a topic
-- **File sharing** — send code snippets or files between peers
+- [ ] **Multi-model** — choose which Claude model each peer uses (`mcc alice --model haiku`)
+- [ ] **Cross-AI communication** — adapters for Gemini CLI, Codex CLI, and others so different AI models can talk to each other through the same messaging layer
+- [ ] **Remote messaging** — replace local SQLite with WebSocket/HTTP for cross-machine communication
+- [ ] **Channels** — group messaging (`#backend`, `#frontend`) so multiple peers can follow a topic
+- [ ] **File sharing** — send code snippets or files between peers
 
 ## Limitations
 
