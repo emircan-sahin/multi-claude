@@ -155,6 +155,13 @@ def handle_sigwinch(signum, frame):
 def main():
     global master_fd, child_pid, last_output_time, injecting, registered, old_termios
 
+    # Pass session ID to MCP server via env var
+    if CLAUDE_EXTRA_ARGS:
+        for i, arg in enumerate(CLAUDE_EXTRA_ARGS):
+            if arg == '--session-id' and i + 1 < len(CLAUDE_EXTRA_ARGS):
+                os.environ['MULTI_CLAUDE_SESSION_ID'] = CLAUDE_EXTRA_ARGS[i + 1]
+                break
+
     child_pid, master_fd = pty.fork()
 
     if child_pid == 0:

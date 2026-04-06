@@ -109,6 +109,20 @@ Claude Code (alice)           Claude Code (bob)
 - **Hooks** — `UserPromptSubmit` and `Stop` hooks check for unread messages automatically
 - **PTY Wrapper** — optional, injects message checks when Claude is idle
 
+## Troubleshooting
+
+**MCP server disconnects when starting multiple instances at the same time**
+
+Claude Code may drop MCP connections if you launch several `mcc` sessions simultaneously. This is a Claude Code limitation, not a multi-claude bug. Start instances a few seconds apart as a workaround.
+
+If you hit MCP disconnects, check the server log:
+
+```bash
+cat ~/.multi-claude/server.log
+```
+
+If the log shows `starting → ready` with no crash, the disconnect came from Claude Code's side.
+
 ## Limitations
 
 - Messages are local only (same machine, shared SQLite)

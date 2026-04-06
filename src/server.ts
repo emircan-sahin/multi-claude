@@ -16,6 +16,14 @@ import { CONFIG, validatePeerName, validateMessage } from './validation';
 
 // ─── Config ───────────────────────────────────────────────
 const DB_DIR = path.join(os.homedir(), '.multi-claude');
+const LOG_PATH = path.join(DB_DIR, 'server.log');
+
+function log(msg: string) {
+  try {
+    const ts = new Date().toISOString();
+    fs.appendFileSync(LOG_PATH, `${ts} ${msg}\n`);
+  } catch { /* ignore log failures */ }
+}
 
 // ─── Types ────────────────────────────────────────────────
 interface Peer {
@@ -40,8 +48,8 @@ interface InboxMessage {
 // ─── Shared SQLite DB ─────────────────────────────────────
 fs.mkdirSync(DB_DIR, { recursive: true });
 const db = new Database(path.join(DB_DIR, 'messages.db'));
-db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
+db.pragma('journal_mode = WAL');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS peers (
@@ -63,8 +71,8 @@ db.exec(`
 
 // ─── Prepared statements ──────────────────────────────────
 const stmts = {
-  deletePeerByName: db.prepare('DELETE FROM peers WHERE name = ? COLLATE NOCASE'),
-  insertPeer: db.prepare('INSERT INTO peers (id, name, role) VALUES (?, ?, ?)'),
+  deletePeerByName: db.prepare('DELETE FROM peers WHERE name = ? COLLATE NOCASE AND id != ?'),
+  upsertPeer: db.prepare('INSERT INTO peers (id, name, role) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, last_seen = datetime(\'now\')'),
   selectOtherPeers: db.prepare('SELECT name, role FROM peers WHERE id != ?'),
   selectPeerByName: db.prepare('SELECT id, name FROM peers WHERE name = ? COLLATE NOCASE'),
   selectAllPeers: db.prepare('SELECT name, role FROM peers ORDER BY last_seen DESC'),
@@ -93,7 +101,7 @@ function textResult(text: string) {
 }
 
 // ─── This instance ────────────────────────────────────────
-const myId = crypto.randomUUID();
+const myId = process.env.MULTI_CLAUDE_SESSION_ID ?? crypto.randomUUID();
 let myName = '';
 let dbOpen = true;
 let lastEmptyGetMessages = 0; // rate limit: block rapid empty calls
@@ -165,8 +173,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       if (err) return textResult(err);
 
       myName = peerName;
-      stmts.deletePeerByName.run(peerName);
-      stmts.insertPeer.run(myId, peerName, role ?? null);
+      stmts.deletePeerByName.run(peerName, myId);
+      stmts.upsertPeer.run(myId, peerName, role ?? null);
 
       const others = stmts.selectOtherPeers.all(myId) as Peer[];
       const list = others.length
@@ -252,22 +260,24 @@ function cleanup() {
   }
 }
 
-process.on('SIGINT', () => { cleanup(); process.exit(0); });
-process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+process.on('SIGINT', () => { log('SIGINT'); cleanup(); process.exit(0); });
+process.on('SIGTERM', () => { log('SIGTERM'); cleanup(); process.exit(0); });
 process.on('uncaughtException', (err) => {
-  console.error('[multi-claude] uncaught exception:', err);
+  log(`uncaught exception: ${err.stack ?? err.message}`);
   cleanup();
   process.exit(1);
 });
 
 async function main() {
+  log(`starting (myId=${myId})`);
   const transport = new StdioServerTransport();
   await mcp.connect(transport);
   startHeartbeat();
+  log('ready');
 }
 
 main().catch((err) => {
-  console.error('[multi-claude] fatal:', err);
+  log(`fatal: ${err.stack ?? err.message}`);
   process.exit(1);
 });
 
