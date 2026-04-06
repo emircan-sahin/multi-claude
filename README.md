@@ -115,6 +115,14 @@ Claude Code (alice)           Claude Code (bob)
 
 The `mcc` wrapper creates per-instance MCP configs (`--mcp-config`) to avoid race conditions when multiple Claude Code instances read the global config simultaneously. If you still hit disconnects, try starting instances a few seconds apart — Claude Code's internal MCP management can race on shared state in `~/.claude.json`.
 
+## Roadmap
+
+- **Multi-model** — choose which Claude model each peer uses (`mcc alice --model haiku`)
+- **Cross-AI communication** — adapters for Gemini CLI, Codex CLI, and others so different AI models can talk to each other through the same messaging layer
+- **Remote messaging** — replace local SQLite with WebSocket/HTTP for cross-machine communication
+- **Channels** — group messaging (`#backend`, `#frontend`) so multiple peers can follow a topic
+- **File sharing** — send code snippets or files between peers
+
 ## Limitations
 
 - Messages are local only (same machine, shared SQLite)
