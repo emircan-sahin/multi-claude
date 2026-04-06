@@ -19,14 +19,17 @@ import time
 import shutil
 
 # ─── Args ──────────────────────────────────────────────────
-if len(sys.argv) < 2:
-    print("Usage: python3 connect.py <name> [claude args...]", file=sys.stderr)
-    print("Example: python3 connect.py selim", file=sys.stderr)
-    print("Example: python3 connect.py selim --resume abc-123", file=sys.stderr)
-    sys.exit(1)
-
-PEER_NAME = sys.argv[1]
-CLAUDE_EXTRA_ARGS = sys.argv[2:]  # everything after name goes to claude
+# If first arg starts with --, no peer name — all args go to claude
+# mcc selim                → name=selim, claude_args=[]
+# mcc selim --resume abc   → name=selim, claude_args=[--resume, abc]
+# mcc --resume abc         → name=None,  claude_args=[--resume, abc]
+# mcc                      → name=None,  claude_args=[]
+if len(sys.argv) > 1 and not sys.argv[1].startswith('-'):
+    PEER_NAME = sys.argv[1]
+    CLAUDE_EXTRA_ARGS = sys.argv[2:]
+else:
+    PEER_NAME = None
+    CLAUDE_EXTRA_ARGS = sys.argv[1:]
 DB_PATH = os.path.expanduser("~/.multi-claude/messages.db")
 CLAUDE_BIN = shutil.which("claude") or "claude"
 
@@ -40,6 +43,8 @@ old_termios = None
 
 # ─── DB helpers ────────────────────────────────────────────
 def check_registered():
+    if not PEER_NAME:
+        return False
     try:
         conn = sqlite3.connect(DB_PATH, timeout=2)
         conn.execute("PRAGMA journal_mode=WAL")
@@ -52,6 +57,8 @@ def check_registered():
         return False
 
 def check_pending_messages():
+    if not PEER_NAME:
+        return False
     try:
         conn = sqlite3.connect(DB_PATH, timeout=2)
         conn.execute("PRAGMA journal_mode=WAL")
@@ -137,14 +144,14 @@ def main():
                 except OSError:
                     break
 
-            # Auto-register: send /name command once
-            if not register_sent and now >= register_time:
+            # Auto-register: send /name command once (only if name provided)
+            if PEER_NAME and not register_sent and now >= register_time:
                 register_sent = True
                 cmd = f"/name {PEER_NAME}\r"
                 os.write(master_fd, cmd.encode())
 
             # Check registration
-            if not registered and register_sent and now - register_time > 5:
+            if PEER_NAME and not registered and register_sent and now - register_time > 5:
                 registered = check_registered()
 
             # Check for pending messages every 2 seconds
