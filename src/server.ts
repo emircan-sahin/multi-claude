@@ -79,14 +79,17 @@ const stmts = {
   deletePeerById: db.prepare('DELETE FROM peers WHERE id = ?'),
 };
 
-// Atomic read + mark delivered
-const readAndDeliver = db.transaction((peerId: string): Message[] => {
-  const msgs = stmts.selectUndelivered.all(peerId) as Message[];
-  if (msgs.length === 0) return [];
-  const ids = msgs.map(m => m.id);
+// Deferred acknowledgment: read messages without marking delivered.
+// Messages are only marked delivered when the peer takes another action
+// (register, send_message, list_peers), proving they received the previous batch.
+let pendingAckIds: number[] = [];
+
+function ackPendingMessages() {
+  if (pendingAckIds.length === 0) return;
+  const ids = pendingAckIds;
+  pendingAckIds = [];
   db.prepare(`UPDATE messages SET delivered = 1 WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
-  return msgs;
-});
+}
 
 function textResult(text: string) {
   return { content: [{ type: 'text' as const, text }] };
@@ -96,7 +99,6 @@ function textResult(text: string) {
 const myId = process.env.MULTI_CLAUDE_SESSION_ID ?? crypto.randomUUID();
 let myName = '';
 let dbOpen = true;
-let lastEmptyGetMessages = 0; // rate limit: block rapid empty calls
 
 // ─── MCP Server ───────────────────────────────────────────
 const mcp = new Server(
@@ -160,6 +162,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 
   switch (name) {
     case 'register': {
+      ackPendingMessages();
       const { name: peerName, role } = args as { name: string; role?: string };
       const err = validatePeerName(peerName);
       if (err) return textResult(err);
@@ -177,6 +180,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     }
 
     case 'send_message': {
+      ackPendingMessages();
       const { to, message } = args as { to: string; message: string };
       if (!myName) return textResult('Register first with /name.');
 
@@ -194,6 +198,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     }
 
     case 'list_peers': {
+      ackPendingMessages();
       const peers = stmts.selectAllPeers.all() as Peer[];
       if (!peers.length) return textResult('No peers online.');
       const lines = peers.map(p => `- ${p.name}${p.role ? ` (${p.role})` : ''}${p.name === myName ? ' (you)' : ''}`);
@@ -203,20 +208,19 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     case 'get_messages': {
       if (!myName) return textResult('Register first.');
 
-      // Rate limit: block if last empty call was <30s ago
-      const now = Date.now();
-      if (lastEmptyGetMessages > 0 && now - lastEmptyGetMessages < 30000) {
-        return textResult('BLOCKED — you already checked and there were no messages. Stop calling this tool. Messages will arrive via hooks automatically.');
-      }
+      // Clear pending acks — messages will be re-read from DB since they're still undelivered.
+      // They'll only be acked when the peer takes another action (send_message, etc.)
+      pendingAckIds = [];
 
-      const msgs = readAndDeliver(myId);
+      const msgs = stmts.selectUndelivered.all(myId) as Message[];
 
       if (!msgs.length) {
-        lastEmptyGetMessages = now;
-        return textResult('No new messages. STOP — do not call get_messages again. You will be notified via hooks when messages arrive.');
+        return textResult('No new messages.');
       }
 
-      lastEmptyGetMessages = 0; // reset on successful read
+      // Store IDs for deferred ack — will be marked delivered on next non-get_messages tool call
+      pendingAckIds = msgs.map(m => m.id);
+
       const lines = msgs.map(m => `From ${m.sender}: ${m.content}`);
       const senders = [...new Set(msgs.map(m => m.sender))];
       const text = lines.join('\n') + `\n\n→ Reply to ${senders.join(', ')} using send_message(to: "${msgs[0].sender}"). Do NOT call get_messages again.`;
