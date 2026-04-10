@@ -28,9 +28,9 @@ DB_PATH = os.path.join(DATA_DIR, "messages.db")
 SESSIONS_PATH = os.path.join(DATA_DIR, "sessions.json")
 CLAUDE_BIN = shutil.which("claude") or "claude"
 
-IDLE_THRESHOLD_S = 2.0
-POLL_INTERVAL_S = 2.0
-INJECT_COOLDOWN_S = 5.0
+IDLE_THRESHOLD_S = 5.0
+POLL_INTERVAL_S = 3.0
+INJECT_COOLDOWN_S = 8.0
 AUTO_REGISTER_DELAY_S = 3.0
 
 # ─── Session store ─────────────────────────────────────────
@@ -114,6 +114,7 @@ def create_mcp_config():
     if not session_id:
         return
 
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     server_ts = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'server.ts')
     config = {
         "mcpServers": {
@@ -121,6 +122,7 @@ def create_mcp_config():
                 "type": "stdio",
                 "command": "npx",
                 "args": ["tsx", server_ts],
+                "cwd": project_dir,
                 "env": {"MULTI_CLAUDE_SESSION_ID": session_id}
             }
         }
